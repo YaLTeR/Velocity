@@ -6,6 +6,10 @@ TagManager:
   - GroundCheck
   - Checkpoint
   - Teleporter
+  - Accelerator
+  - JumpPad
+  - PressButton
+  - Kill
   - 
   Builtin Layer 0: Default
   Builtin Layer 1: TransparentFX
@@ -20,7 +24,7 @@ TagManager:
   User Layer 10: Terrain
   User Layer 11: NoPlayerCollision
   User Layer 12: Trigger
-  User Layer 13: 
+  User Layer 13: UseTrigger
   User Layer 14: 
   User Layer 15: 
   User Layer 16: 
@@ -40,6 +44,10 @@ TagManager:
   User Layer 30: 
   User Layer 31: 
   m_SortingLayers:
+  - name: UI
+    userID: 1
+    uniqueID: 4290306929
+    locked: 0
   - name: Default
     userID: 0
     uniqueID: 0

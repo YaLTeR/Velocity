@@ -6,160 +6,369 @@ public class GameInfo : MonoBehaviour
 {
 	public static GameInfo info;
 	public delegate string InfoString();
+	public GameObject playerTemplate;
 	public GUISkin skin;
-
+	public string secretKey = "NotActuallySecret";
+	
 	//Gamestates
-	private bool showDebug = false;
 	private bool gamePaused = false;
-	private bool showIntro = false;
-	private bool showEscMenu = false;
-	private bool showSettings = false;
+	private bool showLeaderboard = false;
 	private MenuState menuState = MenuState.closed;
+	private bool viewLocked = false;
+	public bool menuLocked = false;
 
+	//GUI
+	private GameObject escMenu;
+	private GameObject endLevel;
+	private string selectedMap;
+
+	//Sound
+	public List<string> soundNames;
+	public List<AudioClip> soundClips;
+
+	//Stuff
+	private SaveData currentSave;
+	private Demo lastDemo;
+	private float lastTime = -1f;
+	private Vector2 leaderboardScroll = Vector2.zero;
+	
 	//Debug window (top-left corner, toggle with f8)
+	public bool logToConsole = true;
 	private List<string> linePrefixes = new List<string>();
 	private List<InfoString> windowLines = new List<InfoString>();
 
-	//Respawn with r
-	private Respawn currentSpawn = null;
-
 	//Game settings
-	private float mouseSpeed = 1f;
+	public float mouseSpeed = 1f;
+	public float fov = 90f;
+	public bool showHelp = true;
+	public float volume = 0.5f;
+	public bool anisotropicFiltering = false;
+	public float antiAliasing = 0f;
+	public float textureSize = 0f;
+	public float lightingLevel = 0f;
+	public float vsyncLevel = 0f;
 
 	//References
-	private GameObject playerObj;
+	private PlayerInfo myPlayer;
+	private DemoPlay myDemoPlayer;
+	private Console myConsole;
+	private Server myServer;
+	private Client myClient;
+	private GameObject myDebugWindow;
+	private UnityEngine.UI.Text myDebugWindowText;
 
 	public enum MenuState
 	{
-		closed = 0,
-		escmenu = 1,
-		intro = 2,
-		settings = 3
+		closed,
+		escmenu,
+		inactive,
+		demo,
+		leaderboard,
+		endlevel,
+		othermenu
 	}
 
+	public enum GameMode
+	{
+		mainmenu = 1,
+		mainmenulobby = 2,
+		singleplayer = 3,
+		maplobby = 4,
+		timeattack = 5
+	}
+	
 	void Awake()
 	{
-		//TODO make this a proper singleton thingy stuff
-		info = this;
+		if(GameInfo.info == null)
+		{
+			info = this;
+			DontDestroyOnLoad(gameObject);
+		}
+		else
+		{
+			Destroy(gameObject);
+		}
+
+		myServer = gameObject.GetComponent<Server>();
+		myClient = gameObject.GetComponent<Client>();
+		myDemoPlayer = gameObject.GetComponent<DemoPlay>();
+
+		GameObject canvas = transform.Find("Canvas").gameObject;
+		escMenu = canvas.transform.Find("EscMenu").gameObject;
+		endLevel = canvas.transform.Find("EndLevel").gameObject;
+		myDebugWindow = canvas.transform.Find("Debug").gameObject;
+		myDebugWindowText = myDebugWindow.transform.Find("Text").GetComponent<UnityEngine.UI.Text>();
 		Screen.lockCursor = true;
-		setMenuState(MenuState.intro);
+		setMenuState(MenuState.closed);
 	}
 
-	//Don't do movement stuff here, do it in FixedUpdate()
+	void Start()
+	{
+		loadPlayerSettings();
+	}
+
 	void Update()
 	{
 		if(Input.GetButtonDown("Debug"))
 		{
-			showDebug = !showDebug;
+			myDebugWindow.SetActive(!myDebugWindow.activeSelf);
 		}
-
+		
 		if(Input.GetButtonDown("Menu"))
 		{
 			toggleEscMenu();
 		}
-	}
 
+		//Draw debug window lines
+		if(getPlayerInfo() != null)
+		{
+			string str = "";
+		
+			for(int i = 0; i < windowLines.Count; i++)
+			{
+				str += linePrefixes[i] + windowLines[i]() + "\n";
+			}
+
+			myDebugWindowText.text = str;
+		}
+		else
+		{
+			myDebugWindowText.text = "No player";
+		}
+	}
+	
 	//Draw the HUD
 	void OnGUI()
 	{
-		//Debug info in the top-left corner
-		if(showDebug)
+		if(showLeaderboard)
 		{
-			int height = 10 + windowLines.Count * 20;
-			int width = 150;
-			GUI.Box(new Rect(5,5,width,height), "", skin.box);
+			GUILayout.BeginArea(new Rect(Screen.width / 2f - 350f, Screen.height / 2f - 250f, 700f, 500f), skin.box);
 
-			int lineHeight = 20;
-			int lineWidth = 500; // 135;
+			GUILayout.BeginHorizontal();
+			GUILayout.Box("Player: " + getCurrentSave().getPlayerName(), skin.box);
+			GUILayout.Box("Map: " + Application.loadedLevelName, skin.box);
+			GUILayout.Box("PB: " + getCurrentSave().getPersonalBest(Application.loadedLevelName).ToString(), skin.box);
+			GUILayout.Box("WR: " + "", skin.box);
+			GUILayout.EndHorizontal();
 
-			for(int i = 0; i < windowLines.Count; i++)
-			{
-				GUI.Label(new Rect(10,10 + 20 * i,lineWidth,lineHeight),linePrefixes[i] + windowLines[i](),skin.label);
-			}
-		}
+			leaderboardScroll = GUILayout.BeginScrollView(leaderboardScroll, false, true, skin.horizontalScrollbar, skin.verticalScrollbar, skin.box);
+			GUILayout.Box("*HERE WILL BE LEADERBOARDS SOON*", skin.box);
+			GUILayout.EndScrollView();
 
-		if(gamePaused)
-		{
-			//Display pause info
-			string menuText = "Game Paused!";
-			drawTextBox(0f,-0.6f,menuText);
-		}
+			if(GUILayout.Button("OK", skin.button, GUILayout.MaxHeight(30))) { menuLocked = false; setMenuState(MenuState.endlevel); }
 
-		if(showEscMenu)
-		{
-			//Draw menu buttons
-			if(drawButton(0f,-0.25f,"Help"))
-			{
-				setMenuState(MenuState.intro);
-			}
-			if(drawButton(0f,0f,"Settings"))
-			{
-				setMenuState(MenuState.settings);
-			}
-			if(drawButton(0f,0.25f,"Quit"))
-			{
-				Application.Quit();
-			}
-		}
-
-		if(showIntro)
-		{
-			string infoText = "Press ESC to toggle the menu.\nPress F8 to toggle debug info.\nPress (or hold) space to jump.\nPress E to grab.\nPress R to respawn.";
-			drawTextBox(0f,0f,infoText);
-		}
-
-		if(showSettings)
-		{
-			mouseSpeed = drawHorizontalSlider(0f, 0f, 100, 20, 0.5f, 20f, mouseSpeed, "Mouse Speed: ");
-			if(drawButton(-0.25f,0.25f,"Cancel"))
-			{
-				setMenuState(MenuState.escmenu);
-				mouseSpeed = playerObj.GetComponentInChildren<MouseLook>().sensitivityX;
-			}
-			if(drawButton(0.25f,0.25f,"OK"))
-			{
-				setMenuState(MenuState.escmenu);
-				playerObj.GetComponentInChildren<MouseLook>().sensitivityX = mouseSpeed;
-				playerObj.GetComponentInChildren<MouseLook>().sensitivityY = mouseSpeed;
-			}
+			GUILayout.EndArea();
 		}
 	}
 
+	//Lock cursor after loosing and gaining focus
 	void OnApplicationFocus(bool focusStatus)
 	{
-		if(!showEscMenu && focusStatus)
+		if(getMenuState() == MenuState.closed && focusStatus)
 		{
 			Screen.lockCursor = true;
 		}
 	}
 
-	private void setMenuState(MenuState state)
+	//Set menustate according to current level's worldinfo settings
+	void OnLevelWasLoaded(int level)
 	{
-		//Reset all states
-		setGamePaused(true);
-		showIntro = false;
-		showEscMenu = false;
-		showSettings = false;
-		Screen.lockCursor = false;
+		removeAllWindowLines();
+		loadPlayerSettings();
+		menuLocked = false;
+		WorldInfo wInfo = WorldInfo.info;
+		if(wInfo != null)
+		{
+			setMenuState(wInfo.beginState);
+		}
+		else
+		{
+			setMenuState(MenuState.inactive);
+		}
+	}
 
+	//Load a level, but inform other players if this is a server
+	public void loadLevel(string name)
+	{
+		if(myServer.isRunning())
+		{
+			//TODO
+		}
+		Application.LoadLevel(name);
+	}
+
+	//Creates a new local player (the one that is controlled by the current user)
+	public void spawnNewPlayer(Respawn spawnpoint, bool killOldPlayer = true)
+	{
+		if(killOldPlayer || getPlayerInfo() == null)
+		{
+			//Remove old player
+			setPlayerInfo(null);
+
+			//Instantiate a new player at the spawnpoint's location
+			GameObject newPlayer = (GameObject)GameObject.Instantiate(playerTemplate, spawnpoint.getSpawnPos(), spawnpoint.getSpawnRot());
+			setPlayerInfo(newPlayer.GetComponent<PlayerInfo>());
+		}
+		
+		applySettings();
+	}
+
+	//Removes player and plays back the demo
+	public void levelFinished()
+	{
+		GameInfo.info.setMenuState(GameInfo.MenuState.endlevel);
+		lastDemo = myPlayer.getDemo();
+		setPlayerInfo(null);
+		playLastDemo();
+	}
+
+	//Plays a sound at the player position
+	public void playSound(string name)
+	{
+		if(myPlayer != null)
+		{
+			for(int i = 0; i < soundNames.Count; i++)
+			{
+				if(soundNames[i] == name)
+				{
+					myPlayer.playSound(soundClips[i]);
+				}
+			}
+		}
+	}
+
+	//Start a new multiplayer server
+	public void startServer(int port, string password, string map)
+	{
+		myServer.StartServer(2, port, password);
+		Application.LoadLevel(map);
+	}
+
+	//Connect to a multiplayer server
+	public void connectToServer(string ip, int port, string password)
+	{
+		if(currentSave != null)
+		{
+			myClient.ConnectToServer(ip, port, password);
+		}
+		else
+		{
+			writeToConsole("You can only connect with a loaded save!");
+		}
+	}
+
+	//Disconnect from current server
+	public void disconnectFromServer()
+	{
+		myClient.DisconnectFromServer();
+	}
+
+	//Stop current server
+	public void stopServer()
+	{
+		myServer.StopServer();
+	}
+
+	//Reset everything in the world to its initial state
+	public void reset()
+	{
+		stopDemo();
+		removeAllWindowLines();
+		WorldInfo.info.reset();
+		setMenuState(MenuState.closed);
+		startDemo();
+	}
+
+	//Leave the game
+	public void quit()
+	{
+		Application.Quit();
+	}
+
+	public void runFinished(float time)
+	{
+		stopDemo();
+		getCurrentSave().saveIfPersonalBest(time, Application.loadedLevelName);
+		lastTime = time;
+	}
+
+	//Version for new gui
+	public void setMenuState(string state)
+	{
 		switch(state)
 		{
-			case MenuState.escmenu:
-				showEscMenu = true;
+			case "closed":
+				setMenuState(MenuState.closed);
 				break;
-			case MenuState.intro:
-				showIntro = true;
+			case "escmenu":
+				setMenuState(MenuState.escmenu);
 				break;
-			case MenuState.settings:
-				showSettings = true;
+			case "inactive":
+				setMenuState(MenuState.inactive);
 				break;
-			default:
-				setGamePaused(false);
-				Screen.lockCursor = true;
+			case "demo":
+				setMenuState(MenuState.demo);
+				break;
+			case "leaderboard":
+				setMenuState(MenuState.leaderboard);
+				break;
+			case "endlevel":
+				setMenuState(MenuState.endlevel);
+				break;
+			case "othermenu":
+				setMenuState(MenuState.othermenu);
 				break;
 		}
+	}
 
-		menuState = state;
+	//Menu state manager
+	public void setMenuState(MenuState state)
+	{
+		if(!menuLocked)
+		{
+			//Reset all states
+			setGamePaused(true);
+			escMenu.SetActive(false);
+			endLevel.SetActive(false);
+			showLeaderboard = false;
+			Screen.lockCursor = false;
+
+			switch(state)
+			{
+				case MenuState.closed:
+					setGamePaused(false);
+					Screen.lockCursor = true;
+					break;
+				case MenuState.escmenu:
+					escMenu.SetActive(true);
+					break;
+				case MenuState.inactive:
+					setGamePaused(false);
+					break;
+				case MenuState.demo:
+					setGamePaused(false);
+					setMouseView(false);
+					Screen.lockCursor = true;
+					break;
+				case MenuState.leaderboard:
+					setMouseView(false);
+					showLeaderboard = true;
+					menuLocked = true;
+					break;
+				case MenuState.endlevel:
+					setGamePaused(false);
+					setMouseView(false);
+					endLevel.SetActive(true);
+					menuLocked = true;
+					break;
+				case MenuState.othermenu:
+					menuLocked = true;
+					break;
+			}
+
+			menuState = state;
+			log("Changed MenuState to '" + menuState.ToString() + "'");
+		}
 	}
 
 	private void toggleEscMenu()
@@ -178,59 +387,7 @@ public class GameInfo : MonoBehaviour
 	{
 		return menuState;
 	}
-
-	public void drawTextBox(float virtualX, float virtualY, string text)
-	{
-		Rect pos = getVirtualContentPos(virtualX, virtualY, text);
-
-		GUI.Box(new Rect(pos.x - 5, pos.y - 5, pos.width + 10, pos.height + 10),"");
-		GUI.Label(pos, text, skin.label);
-	}
-
-	public bool drawButton(float virtualX, float virtualY, string text)
-	{
-		Rect pos = getVirtualContentPos(virtualX, virtualY, text);
-		Rect extendedPos = new Rect(pos.x - 10, pos.y - 5, pos.width + 20, pos.height + 10);
-		return GUI.Button(extendedPos, text, skin.button);
-	}
-
-	public float drawHorizontalSlider(float virtualX, float virtualY, int realWidth, int realHeight, float min, float max, float value, string description)
-	{
-		Rect descriptionPos = getVirtualContentPos(virtualX, virtualY, description);
-
-		float valueWidth = skin.label.CalcSize(new GUIContent(value.ToString())).x;
-		float valueHeight = skin.label.CalcSize(new GUIContent(value.ToString())).y;
-		float valueX = descriptionPos.x + descriptionPos.width + 5 + realWidth + 5;
-		float valueY = descriptionPos.y;
-		Rect valuePos = new Rect(valueX, valueY, valueWidth, valueHeight);
-
-		float boxWidth = 5 + descriptionPos.width + 5 + realWidth + 5 + valueWidth + 5;
-		float boxHeight = Mathf.Max(descriptionPos.height + 10, realHeight);
-		Rect boxPos = new Rect(descriptionPos.x - 5, descriptionPos.y - 5, boxWidth, boxHeight);
-
-		float sliderX = descriptionPos.x + descriptionPos.width + 5;
-		float sliderY = boxPos.y + 5;
-		Rect sliderPos = new Rect(sliderX, sliderY, realWidth, realHeight);
-
-		GUI.Box(boxPos, "");
-		GUI.Label(descriptionPos, description, skin.label);
-		GUI.Label(valuePos, value.ToString(), skin.label);
-		return GUI.HorizontalSlider(sliderPos, value, min, max);
-	}
-
-	//virtual position: 0,0 = center of screen; 1,1 = bottom right corner
-	private Rect getVirtualContentPos(float virtualX, float virtualY, string text)
-	{
-		GUIContent content = new GUIContent(text);
-		float textWidth = skin.label.CalcSize(content).x;
-		float textHeight = skin.label.CalcSize(content).y;
-
-		float xPos = Screen.width / 2f + (Screen.width / 2f) * virtualX;
-		float yPos = Screen.height / 2f + (Screen.height / 2f) * virtualY;
-
-		return new Rect(xPos - textWidth / 2f, yPos - textHeight / 2f, textWidth, textHeight);
-	}
-
+	
 	//Draws some info in the debug window, add a prefix and a function that returns a string
 	public void addWindowLine(string prefix, InfoString stringFunction)
 	{
@@ -238,39 +395,319 @@ public class GameInfo : MonoBehaviour
 		windowLines.Add(stringFunction);
 	}
 
-	public void setSpawn(Respawn spawn)
+	//Remove everything from the debug window
+	private void removeAllWindowLines()
 	{
-		currentSpawn = spawn;
+		linePrefixes.Clear();
+		windowLines.Clear();
 	}
-
+	
 	private void setGamePaused(bool value)
 	{
 		gamePaused = value;
-
+	
 		if(value)
 		{
-			Camera.main.GetComponent<MouseLook>().enabled = false;
+			setMouseView(false);
 			Time.timeScale = 0f;
 		}
 		else
 		{
-			Camera.main.GetComponent<MouseLook>().enabled = true;
+			setMouseView(true);
 			Time.timeScale = 1f;
 		}
 	}
 
+	public void setCurrentSave(SaveData data)
+	{
+		currentSave = data;
+	}
+
+	public SaveData getCurrentSave()
+	{
+		return currentSave;
+	}
+
+	//Apply current data to loaded save file
+	public void save()
+	{
+		if(currentSave != null)
+		{
+			currentSave.save();
+		}
+		else
+		{
+			writeToConsole("Tried to save, but there is no current save file :o");
+		}
+	}
+
+	public void setConsole(Console pConsole)
+	{
+		myConsole = pConsole;
+	}
+
+	public Console getConsole()
+	{
+		return myConsole;
+	}
+
+	public void log(string text)
+	{
+		if(logToConsole)
+		{
+			writeToConsole(text);
+		}
+	}
+
+	//Write a string to the console
+	public void writeToConsole(string text)
+	{
+		if(myConsole)
+			myConsole.writeToConsole(text);
+	}
+
+	//Apply loaded settings to the current game
+	private void applySettings()
+	{
+		if(myPlayer != null)
+		{
+			myPlayer.setMouseSens(mouseSpeed);
+			myPlayer.setFov(fov);
+			myPlayer.setVolume(volume);
+		}
+
+		AnisotropicFiltering filter = AnisotropicFiltering.Disable;
+		if(anisotropicFiltering) { filter = AnisotropicFiltering.ForceEnable; }
+
+		int textureLimit = 2 - (int)textureSize;
+
+		QualitySettings.anisotropicFiltering = filter;
+		QualitySettings.antiAliasing = (int)antiAliasing;
+		QualitySettings.masterTextureLimit = textureLimit;
+		QualitySettings.pixelLightCount = (int)lightingLevel;
+		QualitySettings.shadowCascades = (int)lightingLevel;
+		QualitySettings.vSyncCount = (int)vsyncLevel;
+	}
+
+	//Save current game settings to playerprefs
+	public void savePlayerSettings()
+	{
+		float anisoValue = 0f;
+		if(anisotropicFiltering) { anisoValue = 1f; }
+
+		PlayerPrefs.SetFloat("fov", fov);
+		PlayerPrefs.SetFloat("mouseSpeed", mouseSpeed);
+		PlayerPrefs.SetFloat("volume", volume);
+		PlayerPrefs.SetFloat("aniso", anisoValue);
+		PlayerPrefs.SetFloat("aa", antiAliasing);
+		PlayerPrefs.SetFloat("textureSize", textureSize);
+		PlayerPrefs.SetFloat("lighting", lightingLevel);
+		PlayerPrefs.SetFloat("vsync", vsyncLevel);
+
+		applySettings();
+	}
+
+	//Load game settings from playerprefs, but don't apply them yet
+	public void loadPlayerSettings()
+	{
+		fov = PlayerPrefs.GetFloat("fov");
+		mouseSpeed = PlayerPrefs.GetFloat("mouseSpeed");
+		volume = PlayerPrefs.GetFloat("volume");
+		anisotropicFiltering = (PlayerPrefs.GetFloat("aniso") == 1f);
+		antiAliasing = PlayerPrefs.GetFloat("aa");
+		textureSize = PlayerPrefs.GetFloat("textureSize");
+		lightingLevel = PlayerPrefs.GetFloat("lighting");
+		vsyncLevel = PlayerPrefs.GetFloat("vsync");
+
+		if(fov == 0f) { fov = 60f; }
+		if(mouseSpeed == 0f) { mouseSpeed = 1f; }
+
+		applySettings();
+	}
+	
 	public bool getGamePaused()
 	{
 		return gamePaused;
 	}
 
-	public Respawn getCurrentSpawn()
+	//Sets the reference to the player
+	//If info is null, current player will be removed
+	public void setPlayerInfo(PlayerInfo info)
 	{
-		return currentSpawn;
+		if(info == null)
+		{
+			if(myPlayer != null)
+			{
+				Destroy(myPlayer.gameObject);
+			}
+			myPlayer = null;
+			return;
+		}
+
+		myPlayer = info;
 	}
 
-	public void setPlayerObject(GameObject player)
+	public PlayerInfo getPlayerInfo()
 	{
-		playerObj = player;
+		return myPlayer;
+	}
+
+	public void startDemo()
+	{
+		if(myPlayer != null)
+			myPlayer.startDemo(currentSave.getPlayerName());
+	}
+
+	public void stopDemo()
+	{
+		if(myPlayer != null)
+			myPlayer.stopDemo();
+	}
+
+	public void playDemoFromFile(string fileName)
+	{
+		#if UNITY_STANDALONE_WIN
+
+		stopDemo();
+
+		string fixedFileName = fileName;
+		if(!fixedFileName.ToLower().EndsWith(".vdem")) { fixedFileName += ".vdem"; }
+		
+		Demo myDemo = new Demo(Application.dataPath + "/" + fixedFileName);
+		if(!myDemo.didLoadFromFileFail())
+		{
+			myDemoPlayer.playDemo(myDemo, consoleDemoPlayEnded);
+		}
+
+		#endif
+	}
+
+	public void playLastDemo()
+	{
+		myDemoPlayer.playDemo(lastDemo, endLeveldemoPlayEnded);
+	}
+
+	public float getLastTime()
+	{
+		return lastTime;
+	}
+
+	private void endLeveldemoPlayEnded()
+	{
+		setMenuState(MenuState.endlevel);
+	}
+
+	private void consoleDemoPlayEnded()
+	{
+		setMenuState(MenuState.escmenu);
+	}
+
+	public void saveLastDemo()
+	{
+		#if UNITY_STANDALONE_WIN
+
+		lastDemo.saveToFile(Application.dataPath);
+
+		#endif
+	}
+
+	public void setMouseView(bool value)
+	{
+		if(!viewLocked)
+		{
+			if(myPlayer != null)
+			{
+				myPlayer.setMouseView(value);
+			}
+		}
+	}
+
+	//MouseLook is locked to given value, even if menu states change
+	//Overrides old locked value
+	public void lockMouseView(bool value)
+	{
+		if(myPlayer != null)
+		{
+			myPlayer.setMouseView(value);
+		}
+		viewLocked = true;
+	}
+
+	//MouseLook can be changed by menu again
+	public void unlockMouseView()
+	{
+		viewLocked = false;
+	}
+
+	public void lockMenu()
+	{
+		menuLocked = true;
+	}
+
+	public void unlockMenu()
+	{
+		menuLocked = false;
+	}
+	
+	public void setSelectedMap(string map)
+	{
+		selectedMap = map;
+	}
+
+	public string getSelectedMap()
+	{
+		return selectedMap;
+	}
+
+	//Send a leaderboard entry to leaderboard server, with a automatically generated hash.
+	//This includes a secret key that will be included in the final game (and not uploaded to github),
+	//so nobody can send fake entries.
+	public void sendLeaderboardEntry(string name, float time, string map)
+	{
+		WWWForm form = new WWWForm();
+		form.AddField("PlayerName", name);
+		form.AddField("MapTime", time.ToString());
+		form.AddField("MapName", map);
+		string hash = Md5Sum(name + time.ToString() + map + secretKey);
+		form.AddField("Hash", hash);
+		//WWW www = new WWW("http://gmanserver.info/random/something.php", form);
+		//StartCoroutine(WaitForRequest(www));
+	}
+
+	//Wait for the server to answer
+	private IEnumerator WaitForRequest(WWW www)
+	{
+		yield return www;
+
+		if(www.error != null)
+		{
+			Debug.Log("WWW Error: " + www.error);
+		}
+	}
+
+	//Create a md5 hash from a string
+	public string Md5Sum(string strToEncrypt)
+	{
+		System.Text.UTF8Encoding ue = new System.Text.UTF8Encoding();
+		byte[] bytes = ue.GetBytes(strToEncrypt);
+	
+		//encrypt bytes
+		System.Security.Cryptography.MD5CryptoServiceProvider md5 = new System.Security.Cryptography.MD5CryptoServiceProvider();
+		byte[] hashBytes = md5.ComputeHash(bytes);
+	
+		//Convert the encrypted bytes back to a string (base 16)
+		string hashString = "";
+	
+		for(int i = 0; i < hashBytes.Length; i++)
+		{
+			hashString += System.Convert.ToString(hashBytes[i], 16).PadLeft(2, '0');
+		}
+	
+		return hashString.PadLeft(32, '0');
+	}
+
+	public void setGravity(float value)
+	{
+		Physics.gravity = new Vector3(0f, value, 0f);
 	}
 }
