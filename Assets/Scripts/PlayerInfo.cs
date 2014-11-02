@@ -20,6 +20,13 @@ public class PlayerInfo : MonoBehaviour
 		myMovement = myMesh.GetComponent<Movement>();
 	}
 
+	public void resetPosition(Vector3 pos, Quaternion rot)
+	{
+		transform.position = Vector3.zero;
+		myMesh.transform.position = pos;
+		myMesh.transform.rotation = rot;
+	}
+
 	public void startRace(float delay)
 	{
 		myRaceScript.startRace(delay);
@@ -29,6 +36,11 @@ public class PlayerInfo : MonoBehaviour
 	{
 		myMesh.audio.clip = pClip;
 		myMesh.audio.Play();
+	}
+
+	public string getCurrentSpeed()
+	{
+		return myMovement.getXzVelocityString();
 	}
 
 	public void setMouseSens(float sensitivity)
@@ -97,6 +109,7 @@ public class PlayerInfo : MonoBehaviour
 		myMovement.speed = value;
 	}
 
+	//Gets input multiplier, not current speed!
 	public float getSpeed()
 	{
 		return myMovement.speed;
@@ -130,5 +143,10 @@ public class PlayerInfo : MonoBehaviour
 	public float getJumpForce()
 	{
 		return myMovement.jumpForce;
+	}
+
+	public void setWorldBackgroundColor(Color color)
+	{
+		myCamera.backgroundColor = color;
 	}
 }

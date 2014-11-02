@@ -4,7 +4,6 @@ using System.Collections;
 public class ReplaceUiText : MonoBehaviour
 {
 	public UnityEngine.UI.Text textScript;
-	public bool specialCase = true;
 
 	private string initialText = "";
 	private SaveData player1, player2, player3;
@@ -50,6 +49,15 @@ public class ReplaceUiText : MonoBehaviour
 		if(temp.Contains("$map")) { temp = Application.loadedLevelName; }
 
 		temp = temp.Replace("$selectedmap", GameInfo.info.getSelectedMap());
+		string aut = GameInfo.info.getSelectedAuthor();
+		if(! aut.Equals("?"))
+		{
+			temp = temp.Replace("$selectedauthor", "by " + aut);
+		}
+		else
+		{
+			temp = temp.Replace("$selectedauthor", "");
+		}
 
 		textScript.text = temp;
 	}

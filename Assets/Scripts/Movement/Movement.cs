@@ -44,7 +44,7 @@ public abstract class Movement : MonoBehaviour
 	
 	void Update()
 	{
-		if(!frozen)
+		if(!frozen && !GameInfo.info.isConsoleOpen())
 		{
 			//Set key states
 			if(Input.GetButton("Jump") && allowJump)
@@ -63,7 +63,7 @@ public abstract class Movement : MonoBehaviour
 			
 			if(respawnKeyPressed)
 			{
-				respawnPlayer();
+				respawnPlayer(false);
 			}
 			if(resetKeyPressed)
 			{
@@ -150,7 +150,7 @@ public abstract class Movement : MonoBehaviour
 		}
 		else if(other.tag.Equals("Kill"))
 		{
-			respawnPlayer();
+			respawnPlayer(true);
 		}
 	}
 
@@ -170,17 +170,22 @@ public abstract class Movement : MonoBehaviour
 	}
 	
 	//Spawns the player at the last checkpoint
-	private void respawnPlayer()
+	private void respawnPlayer(bool resetAtStart)
 	{
-		//Resets the game if the last checkpoint was the first anyways
-		if(WorldInfo.info.getCurrentSpawn() == WorldInfo.info.getFirstSpawn())
+		//Restart race if it is wanted and we would go to the first checkpoint
+		if(resetAtStart && WorldInfo.info.getCurrentSpawn() == WorldInfo.info.getFirstSpawn())
 		{
 			GameInfo.info.reset();
+			return;
 		}
-		else
-		{
-			spawnPlayer(WorldInfo.info.getCurrentSpawn());
-		}
+
+		//Don't reset the game, just spawn the player at the last (possibly first checkpoint)
+		spawnPlayer(WorldInfo.info.getCurrentSpawn());
+	}
+
+	public bool getJumpKeyPressed()
+	{
+		return jumpKeyPressed;
 	}
 	
 	public bool checkGround()
@@ -193,7 +198,6 @@ public abstract class Movement : MonoBehaviour
 	//Doesn't actually check the volume of a cylinder, instead executes a given number of raycasts in a circle
 	//origin: center of the circle from which will be cast
 	//radiusVector: radius of the circle
-	//verticalDirection: 1 = up, -1 = down
 	//rayCount: number of vertices the "circle" will have
 	private bool checkCylinder(Vector3 origin, Vector3 radiusVector, float verticalLength, int rayCount)
 	{
@@ -286,7 +290,7 @@ public abstract class Movement : MonoBehaviour
 		return Vector3.Magnitude(rigidbody.velocity);
 	}
 	
-	private string getXzVelocityString()
+	public string getXzVelocityString()
 	{
 		float mag = new Vector3(rigidbody.velocity.x, 0f, rigidbody.velocity.z).magnitude;
 		string magstr = mag.ToString();
@@ -297,7 +301,7 @@ public abstract class Movement : MonoBehaviour
 		return roundString(magstr, 2);
 	}
 	
-	private string getYVelocityString()
+	public string getYVelocityString()
 	{
 		string v = rigidbody.velocity.y.ToString();
 		if(v.ToLower().Contains("e"))
